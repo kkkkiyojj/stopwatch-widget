@@ -3,10 +3,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "method not allowed" });
   }
 
+  const startedAt = Date.now();
+
   try {
     const { subject, minutes } = req.body || {};
 
-    // basic validation
     if (!subject || typeof subject !== "string") {
       return res.status(400).json({ ok: false, error: "invalid subject" });
     }
@@ -18,72 +19,100 @@ export default async function handler(req, res) {
     const databaseId = process.env.NOTION_DATABASE_ID;
 
     if (!notionToken || !databaseId) {
+      console.error("missing env", { hasToken: !!notionToken, hasDb: !!databaseId });
       return res.status(500).json({ ok: false, error: "missing env" });
     }
 
-    // today range in Asia/Seoul (yyyy-mm-dd)
     const today = getKSTDateString(0);
     const tomorrow = getKSTDateString(1);
 
-    // 1) find today's row by (day within today range AND subject equals selected)
-    // NOTE: we use a range filter so it still matches if "day" contains time.
     const queryBody = {
       filter: {
         and: [
           { property: "day", date: { on_or_after: today } },
           { property: "day", date: { before: tomorrow } },
-          { property: "subject", select: { equals: subject } },
         ],
       },
-      page_size: 1,
+      page_size: 100,
     };
 
-    const q = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+    const qResp = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
       method: "POST",
       headers: notionHeaders(notionToken),
       body: JSON.stringify(queryBody),
     });
 
-    const qJson = await q.json();
-    if (!q.ok) {
-      return res.status(500).json({ ok: false, error: "notion query failed", detail: qJson });
+    const qText = await qResp.text();
+    let qJson = null;
+    try { qJson = JSON.parse(qText); } catch {}
+
+    if (!qResp.ok) {
+      console.error("notion query failed", {
+        status: qResp.status,
+        body: qJson || qText,
+      });
+      return res.status(500).json({
+        ok: false,
+        error: "notion query failed",
+        status: qResp.status,
+      });
     }
 
-    const page = (qJson.results || [])[0];
+    const results = Array.isArray(qJson?.results) ? qJson.results : [];
+    if (results.length === 0) {
+      return res.status(404).json({ ok: false, error: "no rows for today" });
+    }
+
+    const target = normalize(subject);
+
+    const page = results.find((p) => normalize(p?.properties?.subject?.select?.name) === target);
+
     if (!page) {
-      // spec: do not create new row
-      return res.status(404).json({ ok: false, error: "row not found" });
+      const available = results
+        .map((p) => p?.properties?.subject?.select?.name)
+        .filter(Boolean)
+        .map(String);
+      return res.status(404).json({ ok: false, error: "row not found", available_subjects: available });
     }
 
-    // 2) current focus minutes
     const current = page?.properties?.focus?.number;
     const currentNum = typeof current === "number" && Number.isFinite(current) ? current : 0;
 
-    // 3) update focus by adding minutes (accumulate)
     const addMinutes = Math.floor(minutes);
     const newFocus = currentNum + addMinutes;
 
-    const u = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+    const uResp = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
       method: "PATCH",
       headers: notionHeaders(notionToken),
       body: JSON.stringify({
-        properties: {
-          focus: { number: newFocus },
-        },
+        properties: { focus: { number: newFocus } },
       }),
     });
 
-    const uJson = await u.json();
-    if (!u.ok) {
-      return res.status(500).json({ ok: false, error: "notion update failed", detail: uJson });
+    const uText = await uResp.text();
+    let uJson = null;
+    try { uJson = JSON.parse(uText); } catch {}
+
+    if (!uResp.ok) {
+      console.error("notion update failed", {
+        status: uResp.status,
+        body: uJson || uText,
+      });
+      return res.status(500).json({
+        ok: false,
+        error: "notion update failed",
+        status: uResp.status,
+      });
     }
 
     return res.status(200).json({
       ok: true,
       saved_minutes: addMinutes,
       new_focus: newFocus,
+      ms: Date.now() - startedAt,
     });
   } catch (e) {
+    console.error("server error", e);
     return res.status(500).json({ ok: false, error: "server error" });
   }
 }
@@ -96,10 +125,12 @@ function notionHeaders(token) {
   };
 }
 
-// Returns yyyy-mm-dd in Asia/Seoul, optionally addDays (0=today, 1=tomorrow)
+function normalize(s) {
+  return String(s ?? "").trim();
+}
+
 function getKSTDateString(addDays = 0) {
   const dt = new Date(Date.now() + addDays * 24 * 60 * 60 * 1000);
-
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
@@ -110,6 +141,5 @@ function getKSTDateString(addDays = 0) {
   const y = parts.find((p) => p.type === "year")?.value;
   const m = parts.find((p) => p.type === "month")?.value;
   const d = parts.find((p) => p.type === "day")?.value;
-
   return `${y}-${m}-${d}`;
 }
