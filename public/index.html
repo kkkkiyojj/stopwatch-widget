@@ -3,30 +3,25 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>stopwatch ui v3</title>
+  <title>stopwatch ui v4</title>
   <style>
     :root{
-      /* user palette */
-      --sky-1: #D4E4F2;   /* lighter */
-      --sky-2: #BAD1E6;   /* deeper */
+      /* palette */
+      --c-light: #D4E4F2;  /* light sky */
+      --c-deep:  #BAD1E6;  /* deeper sky */
+      --resume:  #98a0ab;  /* resume button */
 
       /* surfaces */
---card: var(--sky-1);   /* 연한 카드 */
+      --card: var(--c-light);
+      --btn-base: var(--c-deep);
+      --btn-hover: #aecde3;
 
---btn: var(--sky-2);    /* 진한 버튼 */
---btn-hover: #a9c7df;   /* 살짝 더 진한 hover */
-
-      /* emphasis */
---emph: #9fc3df;
---emph-hover: #8eb8d8;
-
-      /* resume (dark gray-purple, not black) */
-      --resume: #98a0ab;
-      --resume-hover: #643f4d;
+      --btn-strong: #9fc3df;       /* emphasized (start/pause/clear) */
+      --btn-strong-hover: #8fb9d7;
 
       /* text */
       --text: rgba(255,255,255,0.96);
-      --text-soft: rgba(255,255,255,0.84);
+      --text-soft: rgba(255,255,255,0.82);
 
       /* shadows */
       --shadow-soft: rgba(0,0,0,0.10);
@@ -39,7 +34,6 @@
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       background: transparent; /* important for notion embed */
     }
-
     body{
       display:flex;
       align-items:center;
@@ -53,8 +47,10 @@
       box-shadow: 0 14px 30px var(--shadow-soft);
       padding: 16px;
       box-sizing: border-box;
+      position: relative;
     }
 
+    /* dropdown (dark text allowed here) */
     select{
       width:100%;
       border:none;
@@ -62,8 +58,8 @@
       padding: 10px 12px;
       font-size: 14px;
       outline: none;
-      background: rgba(255,255,255,0.60);
-      color: #2f4f63; /* dropdown text can be dark */
+      background: rgba(255,255,255,0.70);
+      color: #2f4f63;
       box-shadow: 0 8px 18px var(--shadow-soft);
     }
 
@@ -84,7 +80,6 @@
       gap: 12px;
       margin-top: 6px;
     }
-
     .rowSingle{ margin-top: 12px; }
 
     button{
@@ -95,12 +90,10 @@
       font-weight: 850;
       letter-spacing: .2px;
       color: var(--text);
-      background: var(--btn);
+      background: var(--btn-base);
       cursor:pointer;
       box-shadow: 0 10px 22px var(--shadow-soft);
       transition: transform 0.14s ease, box-shadow 0.14s ease, background 0.14s ease, opacity 0.14s ease;
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
     }
     button:hover{
       background: var(--btn-hover);
@@ -117,27 +110,21 @@
       transform: none;
     }
 
-    /* emphasis for "next action" buttons */
     button.primary{
-      background: var(--emph);
+      background: var(--btn-strong);
       box-shadow: 0 12px 26px var(--shadow-strong);
     }
-    button.primary:hover{ background: var(--emph-hover); }
+    button.primary:hover{ background: var(--btn-strong-hover); }
 
     button.ghost{ opacity:.55; }
 
-    /* pause/resume styles */
-    button.pauseSameAsEmph{
-      background: var(--emph);
-      box-shadow: 0 12px 26px var(--shadow-strong);
-    }
-    button.pauseSameAsEmph:hover{ background: var(--emph-hover); }
-
     button.resumeDark{
-      background: var(--resume);
+      background: var(--resume) !important;
       box-shadow: 0 12px 26px var(--shadow-strong);
     }
-    button.resumeDark:hover{ background: var(--resume-hover); }
+    button.resumeDark:hover{
+      filter: brightness(0.96);
+    }
 
     .status{
       margin-top: 12px;
@@ -145,6 +132,16 @@
       color: var(--text-soft);
       min-height: 16px;
       text-align:center;
+      user-select:none;
+    }
+
+    /* tiny version mark to confirm deploy */
+    .mark{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      font-size:10px;
+      color: rgba(255,255,255,0.65);
       user-select:none;
     }
   </style>
@@ -169,10 +166,11 @@
     </div>
 
     <div class="rowSingle">
-      <button id="pause" style="width:100%;" disabled>pause</button>
+      <button id="pause" style="width:100%;">pause</button>
     </div>
 
     <div class="status" id="status"></div>
+    <div class="mark">ui v4</div>
   </div>
 
 <script>
@@ -206,27 +204,36 @@
     return elapsedMs + (running && !paused ? (Date.now() - startMs) : 0);
   }
 
- function syncUI(){
-  btnStart.className = "";
-  btnClear.className = "";
-  btnPause.className = "";
+  function stopTick(){
+    if (tickId) clearInterval(tickId);
+    tickId = null;
+  }
 
-  const timeMs = nowMs();
-  const hasAnyTime = timeMs >= 1000;
+  function syncUI(){
+    // reset classes + resume styling
+    btnStart.className = "";
+    btnClear.className = "";
+    btnPause.className = "";
 
-  if (!running) {
-    // 🔹 idle (00:00)
-    btnStart.disabled = false;
-    btnPause.disabled = false;
-    btnPause.textContent = "pause";
+    // keep ids intact (className reset is ok)
+    const timeMs = nowMs();
+    const hasAnyTime = timeMs >= 1000;
 
-    btnStart.classList.add("primary");
-    btnPause.classList.add("primary");
+    if (!running) {
+      // idle 00:00: start + pause emphasized
+      btnStart.disabled = false;
+      btnStart.classList.add("primary");
 
-    btnClear.disabled = !hasAnyTime;
-    btnClear.classList.add("ghost");
-  } 
-  else {
+      btnPause.disabled = false;
+      btnPause.textContent = "pause";
+      btnPause.classList.add("primary");
+
+      btnClear.disabled = !hasAnyTime;
+      btnClear.classList.add("ghost");
+      return;
+    }
+
+    // running or paused:
     btnStart.disabled = true;
     btnStart.classList.add("ghost");
 
@@ -236,27 +243,17 @@
     btnPause.disabled = false;
 
     if (paused) {
-      // 🔹 paused → resume 강조 (#98a0ab)
       btnPause.textContent = "resume";
-      btnPause.style.background = "var(--resume)";
-      btnPause.classList.remove("primary");
+      btnPause.classList.add("resumeDark");
     } else {
-      // 🔹 running
       btnPause.textContent = "pause";
-      btnPause.style.background = ""; 
       btnPause.classList.add("primary");
     }
   }
-}
 
   function render(){
     elTimer.textContent = fmt(nowMs());
     syncUI();
-  }
-
-  function stopTick(){
-    if (tickId) clearInterval(tickId);
-    tickId = null;
   }
 
   function start(){
@@ -273,7 +270,11 @@
   }
 
   function togglePause(){
-    if (!running) return;
+    if (!running) {
+      // idle 상태에서도 pause를 누를 수 있게 해달라고 했지만,
+      // 실제 동작은 "아무것도 안 함"이 자연스럽다 (UI만 강조되어 있음)
+      return;
+    }
 
     if (!paused){
       elapsedMs += Date.now() - startMs;
@@ -286,7 +287,7 @@
   }
 
   async function clearAndSave(){
-    // if not running: just reset visuals
+    // idle에서는 그냥 리셋만
     if (!running) {
       elapsedMs = 0;
       paused = false;
@@ -303,7 +304,7 @@
     const minutes = Math.floor((elapsedMs / 1000) / 60);
     const subject = elSubject.value;
 
-    // lock UI while saving
+    // lock UI during save
     btnStart.disabled = true;
     btnClear.disabled = true;
     btnPause.disabled = true;
