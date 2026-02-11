@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>stopwatch</title>
+  <style>
+    :root{
+      --bg: #bfe5ff;          /* pale sky */
+      --btn: #6fb7e9;         /* deeper sky */
+      --btn2:#5aa9e0;
+      --text:#ffffff;
+      --shadow: rgba(0,0,0,.15);
+    }
+    html,body{height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
+    body{display:flex; align-items:center; justify-content:center; background: transparent;}
+    .card{
+      width: 300px;
+      background: var(--bg);
+      border-radius: 14px;
+      box-shadow: 0 10px 24px var(--shadow);
+      padding: 14px;
+      box-sizing: border-box;
+    }
+    select{
+      width:100%;
+      border:none;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      outline: none;
+      background: rgba(255,255,255,.65);
+    }
+    .timer{
+      margin: 12px 0 10px;
+      text-align:center;
+      font-weight: 800;
+      letter-spacing: 1px;
+      font-size: 52px;
+      color: var(--text);
+      user-select:none;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    button{
+      border:none;
+      border-radius: 10px;
+      padding: 11px 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      background: var(--btn);
+      cursor:pointer;
+    }
+    button:hover{background: var(--btn2);}
+    button:disabled{opacity:.55; cursor:not-allowed;}
+    .rowSingle{margin-top:10px;}
+    .status{
+      margin-top: 10px;
+      font-size: 12px;
+      color: rgba(255,255,255,.95);
+      min-height: 16px;
+      text-align:center;
+      user-select:none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <select id="subject">
+      <option value="아침 영단어">아침 영단어</option>
+      <option value="영어">영어</option>
+      <option value="국어">국어</option>
+      <option value="한국사">한국사</option>
+      <option value="행정법">행정법</option>
+      <option value="행정학">행정학</option>
+      <option value="저녁 영단어">저녁 영단어</option>
+    </select>
+
+    <div class="timer" id="timer">00:00</div>
+
+    <div class="grid">
+      <button id="start">start</button>
+      <button id="clear">clear</button>
+    </div>
+
+    <div class="rowSingle">
+      <button id="pause" style="width:100%;" disabled>pause</button>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+<script>
+(() => {
+  const elTimer = document.getElementById("timer");
+  const elStatus = document.getElementById("status");
+  const elSubject = document.getElementById("subject");
+  const btnStart = document.getElementById("start");
+  const btnClear = document.getElementById("clear");
+  const btnPause = document.getElementById("pause");
+
+  let running = false;
+  let paused = false;
+  let startMs = 0;
+  let elapsedMs = 0; // accumulated ms while paused/resumed
+  let tickId = null;
+
+  function fmt(ms){
+    const totalSec = Math.floor(ms / 1000);
+    const mm = String(Math.floor(totalSec / 60)).padStart(2,"0");
+    const ss = String(totalSec % 60).padStart(2,"0");
+    return `${mm}:${ss}`;
+  }
+
+  function setStatus(text){
+    elStatus.textContent = text || "";
+  }
+
+  function render(){
+    elTimer.textContent = fmt(elapsedMs + (running && !paused ? (Date.now() - startMs) : 0));
+  }
+
+  function stopTick(){
+    if (tickId) clearInterval(tickId);
+    tickId = null;
+  }
+
+  function start(){
+    if (running) return;
+    running = true;
+    paused = false;
+    elapsedMs = 0;
+    startMs = Date.now();
+
+    btnPause.disabled = false;
+    btnPause.textContent = "pause";
+    setStatus("");
+
+    stopTick();
+    tickId = setInterval(render, 200);
+    render();
+  }
+
+  function togglePause(){
+    if (!running) return;
+    if (!paused){
+      // pause
+      elapsedMs += Date.now() - startMs;
+      paused = true;
+      btnPause.textContent = "resume";
+      render();
+    } else {
+      // resume
+      startMs = Date.now();
+      paused = false;
+      btnPause.textContent = "pause";
+    }
+  }
+
+  async function clearAndSave(){
+    if (!running) {
+      // even if not running, still reset UI
+      elapsedMs = 0; paused = false; running = false;
+      btnPause.disabled = true; btnPause.textContent = "pause";
+      stopTick(); render();
+      setStatus("");
+      return;
+    }
+
+    // freeze elapsed
+    if (!paused) elapsedMs += Date.now() - startMs;
+
+    const minutes = Math.floor((elapsedMs / 1000) / 60); // floor rounding
+    const subject = elSubject.value;
+
+    btnStart.disabled = true;
+    btnClear.disabled = true;
+    btnPause.disabled = true;
+
+    try{
+      const r = await fetch("/api/save", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ subject, minutes })
+      });
+      const j = await r.json().catch(() => ({}));
+
+      if (!r.ok || !j.ok){
+        setStatus("error");
+      } else {
+        setStatus("saved");
+      }
+    } catch(e){
+      setStatus("error");
+    } finally {
+      // reset timer and stop
+      running = false;
+      paused = false;
+      elapsedMs = 0;
+      stopTick();
+      render();
+
+      btnStart.disabled = false;
+      btnClear.disabled = false;
+      btnPause.disabled = true;
+      btnPause.textContent = "pause";
+    }
+  }
+
+  btnStart.addEventListener("click", start);
+  btnPause.addEventListener("click", togglePause);
+  btnClear.addEventListener("click", clearAndSave);
+
+  render();
+})();
+</script>
+</body>
+</html>
