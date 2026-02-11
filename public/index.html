@@ -3,32 +3,42 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>stopwatch</title>
+  <title>stopwatch ui v3</title>
   <style>
     :root{
-      /* palette (sky + white + gray only) */
-      --bg: #D4E4F2;            /* very light sky */
-      --card: #BAD1E6;          /* soft sky */
-      --btn: rgba(255,255,255,0.30);
-      --btn-hover: rgba(255,255,255,0.38);
+      /* user palette */
+      --sky-1: #D4E4F2;   /* lighter */
+      --sky-2: #BAD1E6;   /* deeper */
 
-      --strong: rgba(255,255,255,0.55);   /* emphasized button */
-      --strong-hover: rgba(255,255,255,0.65);
+      /* surfaces */
+      --card: var(--sky-2);
+      --btn: rgba(255,255,255,0.22);
+      --btn-hover: rgba(255,255,255,0.30);
 
-      --pause: rgba(255,255,255,0.22);    /* pause tone (still sky/white/gray) */
-      --pause-hover: rgba(255,255,255,0.30);
+      /* emphasis */
+      --emph: rgba(255,255,255,0.52);
+      --emph-hover: rgba(255,255,255,0.62);
 
-      --text: rgba(255,255,255,0.96);     /* main screen text: no black */
+      /* resume (dark gray-purple, not black) */
+      --resume: #704757;
+      --resume-hover: #643f4d;
+
+      /* text */
+      --text: rgba(255,255,255,0.96);
+      --text-soft: rgba(255,255,255,0.84);
+
+      /* shadows */
       --shadow-soft: rgba(0,0,0,0.10);
-      --shadow-strong: rgba(0,0,0,0.16);
+      --shadow-strong: rgba(0,0,0,0.18);
     }
 
     html,body{
       height:100%;
       margin:0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: transparent;
+      background: transparent; /* important for notion embed */
     }
+
     body{
       display:flex;
       align-items:center;
@@ -44,7 +54,6 @@
       box-sizing: border-box;
     }
 
-    /* dropdown */
     select{
       width:100%;
       border:none;
@@ -52,8 +61,8 @@
       padding: 10px 12px;
       font-size: 14px;
       outline: none;
-      background: rgba(255,255,255,0.55);
-      color: #2f4f63; /* dropdown opened text can be dark: ok */
+      background: rgba(255,255,255,0.60);
+      color: #2f4f63; /* dropdown text can be dark */
       box-shadow: 0 8px 18px var(--shadow-soft);
     }
 
@@ -64,7 +73,7 @@
       letter-spacing: 2px;
       font-size: 56px;
       color: var(--text);
-      text-shadow: 0 8px 18px var(--shadow-strong);
+      text-shadow: 0 9px 20px var(--shadow-strong);
       user-select:none;
     }
 
@@ -74,6 +83,7 @@
       gap: 12px;
       margin-top: 6px;
     }
+
     .rowSingle{ margin-top: 12px; }
 
     button{
@@ -106,26 +116,32 @@
       transform: none;
     }
 
-    /* emphasis states */
+    /* emphasis for "next action" buttons */
     button.primary{
-      background: var(--strong);
+      background: var(--emph);
       box-shadow: 0 12px 26px var(--shadow-strong);
     }
-    button.primary:hover{ background: var(--strong-hover); }
+    button.primary:hover{ background: var(--emph-hover); }
 
-    button.pauseTone{
-      background: var(--pause);
-    }
-    button.pauseTone:hover{ background: var(--pause-hover); }
+    button.ghost{ opacity:.55; }
 
-    button.ghost{
-      opacity:.55;
+    /* pause/resume styles */
+    button.pauseSameAsEmph{
+      background: var(--emph);
+      box-shadow: 0 12px 26px var(--shadow-strong);
     }
+    button.pauseSameAsEmph:hover{ background: var(--emph-hover); }
+
+    button.resumeDark{
+      background: var(--resume);
+      box-shadow: 0 12px 26px var(--shadow-strong);
+    }
+    button.resumeDark:hover{ background: var(--resume-hover); }
 
     .status{
       margin-top: 12px;
       font-size: 12px;
-      color: rgba(255,255,255,0.85);
+      color: var(--text-soft);
       min-height: 16px;
       text-align:center;
       user-select:none;
@@ -190,16 +206,16 @@
   }
 
   function syncUI(){
-    // reset classes
-    btnStart.classList.remove("primary","ghost");
-    btnClear.classList.remove("primary","ghost");
-    btnPause.classList.remove("pauseTone","ghost","primary");
+    // clear classes
+    btnStart.className = "";
+    btnClear.className = "";
+    btnPause.className = "";
 
     const timeMs = nowMs();
     const hasAnyTime = timeMs >= 1000; // >= 1s
 
     if (!running) {
-      // idle: start emphasized, clear muted (and disabled at 00:00)
+      // A) idle: start emphasized, clear ghost/disabled at 00:00
       btnStart.disabled = false;
       btnStart.classList.add("primary");
 
@@ -209,7 +225,7 @@
       btnClear.disabled = !hasAnyTime;
       btnClear.classList.add("ghost");
     } else {
-      // running/paused: clear emphasized, start muted/disabled, pause in its own tone
+      // A) running/paused: clear emphasized, start disabled ghost
       btnStart.disabled = true;
       btnStart.classList.add("ghost");
 
@@ -217,8 +233,16 @@
       btnClear.classList.add("primary");
 
       btnPause.disabled = false;
-      btnPause.classList.add("pauseTone");
-      btnPause.textContent = paused ? "resume" : "pause";
+
+      if (paused) {
+        // resume emphasized in dark gray-purple
+        btnPause.textContent = "resume";
+        btnPause.classList.add("resumeDark");
+      } else {
+        // pause: same emphasis tone as start/clear
+        btnPause.textContent = "pause";
+        btnPause.classList.add("pauseSameAsEmph");
+      }
     }
   }
 
@@ -259,7 +283,7 @@
   }
 
   async function clearAndSave(){
-    // if not running: just reset UI (no save)
+    // if not running: just reset visuals
     if (!running) {
       elapsedMs = 0;
       paused = false;
@@ -276,7 +300,7 @@
     const minutes = Math.floor((elapsedMs / 1000) / 60);
     const subject = elSubject.value;
 
-    // lock ui during save
+    // lock UI while saving
     btnStart.disabled = true;
     btnClear.disabled = true;
     btnPause.disabled = true;
@@ -287,7 +311,6 @@
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ subject, minutes })
       });
-
       const j = await r.json().catch(() => ({}));
 
       if (!r.ok || !j.ok){
@@ -303,10 +326,7 @@
       paused = false;
       elapsedMs = 0;
       stopTick();
-      render(); // syncUI happens inside
-
-      // re-enable after render decided states
-      // (syncUI will enable start, disable clear if 00:00)
+      render();
     }
   }
 
