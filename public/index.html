@@ -190,11 +190,13 @@
       });
       const j = await r.json().catch(() => ({}));
 
-      if (!r.ok || !j.ok){
-        setStatus("error");
-      } else {
-        setStatus("saved");
-      }
+     if (!r.ok || !j.ok){
+  const msg = (j && (j.error || j.detail)) ? (j.error || "error") : "error";
+  setStatus(`error: ${msg}`);
+} else {
+  setStatus("saved");
+}
+
     } catch(e){
       setStatus("error");
     } finally {
