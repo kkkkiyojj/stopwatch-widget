@@ -6,63 +6,126 @@
   <title>stopwatch</title>
   <style>
     :root{
-      --bg: #bfe5ff;          /* pale sky */
-      --btn: #6fb7e9;         /* deeper sky */
-      --btn2:#5aa9e0;
-      --text:#ffffff;
-      --shadow: rgba(0,0,0,.15);
+      /* palette (sky + white + gray only) */
+      --bg: #D4E4F2;            /* very light sky */
+      --card: #BAD1E6;          /* soft sky */
+      --btn: rgba(255,255,255,0.30);
+      --btn-hover: rgba(255,255,255,0.38);
+
+      --strong: rgba(255,255,255,0.55);   /* emphasized button */
+      --strong-hover: rgba(255,255,255,0.65);
+
+      --pause: rgba(255,255,255,0.22);    /* pause tone (still sky/white/gray) */
+      --pause-hover: rgba(255,255,255,0.30);
+
+      --text: rgba(255,255,255,0.96);     /* main screen text: no black */
+      --shadow-soft: rgba(0,0,0,0.10);
+      --shadow-strong: rgba(0,0,0,0.16);
     }
-    html,body{height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
-    body{display:flex; align-items:center; justify-content:center; background: transparent;}
+
+    html,body{
+      height:100%;
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: transparent;
+    }
+    body{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
     .card{
       width: 300px;
-      background: var(--bg);
-      border-radius: 14px;
-      box-shadow: 0 10px 24px var(--shadow);
-      padding: 14px;
+      background: var(--card);
+      border-radius: 18px;
+      box-shadow: 0 14px 30px var(--shadow-soft);
+      padding: 16px;
       box-sizing: border-box;
     }
+
+    /* dropdown */
     select{
       width:100%;
       border:none;
-      border-radius: 10px;
+      border-radius: 999px;
       padding: 10px 12px;
       font-size: 14px;
       outline: none;
-      background: rgba(255,255,255,.65);
+      background: rgba(255,255,255,0.55);
+      color: #2f4f63; /* dropdown opened text can be dark: ok */
+      box-shadow: 0 8px 18px var(--shadow-soft);
     }
+
     .timer{
-      margin: 12px 0 10px;
+      margin: 16px 0 14px;
       text-align:center;
-      font-weight: 800;
-      letter-spacing: 1px;
-      font-size: 52px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      font-size: 56px;
       color: var(--text);
+      text-shadow: 0 8px 18px var(--shadow-strong);
       user-select:none;
     }
+
     .grid{
       display:grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 12px;
       margin-top: 6px;
     }
+    .rowSingle{ margin-top: 12px; }
+
     button{
       border:none;
-      border-radius: 10px;
-      padding: 11px 10px;
+      border-radius: 999px; /* pill */
+      padding: 12px 12px;
       font-size: 14px;
-      font-weight: 700;
+      font-weight: 850;
+      letter-spacing: .2px;
       color: var(--text);
       background: var(--btn);
       cursor:pointer;
+      box-shadow: 0 10px 22px var(--shadow-soft);
+      transition: transform 0.14s ease, box-shadow 0.14s ease, background 0.14s ease, opacity 0.14s ease;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
     }
-    button:hover{background: var(--btn2);}
-    button:disabled{opacity:.55; cursor:not-allowed;}
-    .rowSingle{margin-top:10px;}
+    button:hover{
+      background: var(--btn-hover);
+      box-shadow: 0 12px 26px var(--shadow-strong);
+      transform: translateY(-1px);
+    }
+    button:active{
+      transform: translateY(0px);
+      box-shadow: 0 8px 18px var(--shadow-soft);
+    }
+    button:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+      transform: none;
+    }
+
+    /* emphasis states */
+    button.primary{
+      background: var(--strong);
+      box-shadow: 0 12px 26px var(--shadow-strong);
+    }
+    button.primary:hover{ background: var(--strong-hover); }
+
+    button.pauseTone{
+      background: var(--pause);
+    }
+    button.pauseTone:hover{ background: var(--pause-hover); }
+
+    button.ghost{
+      opacity:.55;
+    }
+
     .status{
-      margin-top: 10px;
+      margin-top: 12px;
       font-size: 12px;
-      color: rgba(255,255,255,.95);
+      color: rgba(255,255,255,0.85);
       min-height: 16px;
       text-align:center;
       user-select:none;
@@ -100,6 +163,7 @@
   const elTimer = document.getElementById("timer");
   const elStatus = document.getElementById("status");
   const elSubject = document.getElementById("subject");
+
   const btnStart = document.getElementById("start");
   const btnClear = document.getElementById("clear");
   const btnPause = document.getElementById("pause");
@@ -107,7 +171,7 @@
   let running = false;
   let paused = false;
   let startMs = 0;
-  let elapsedMs = 0; // accumulated ms while paused/resumed
+  let elapsedMs = 0;
   let tickId = null;
 
   function fmt(ms){
@@ -121,8 +185,46 @@
     elStatus.textContent = text || "";
   }
 
+  function nowMs(){
+    return elapsedMs + (running && !paused ? (Date.now() - startMs) : 0);
+  }
+
+  function syncUI(){
+    // reset classes
+    btnStart.classList.remove("primary","ghost");
+    btnClear.classList.remove("primary","ghost");
+    btnPause.classList.remove("pauseTone","ghost","primary");
+
+    const timeMs = nowMs();
+    const hasAnyTime = timeMs >= 1000; // >= 1s
+
+    if (!running) {
+      // idle: start emphasized, clear muted (and disabled at 00:00)
+      btnStart.disabled = false;
+      btnStart.classList.add("primary");
+
+      btnPause.disabled = true;
+      btnPause.textContent = "pause";
+
+      btnClear.disabled = !hasAnyTime;
+      btnClear.classList.add("ghost");
+    } else {
+      // running/paused: clear emphasized, start muted/disabled, pause in its own tone
+      btnStart.disabled = true;
+      btnStart.classList.add("ghost");
+
+      btnClear.disabled = false;
+      btnClear.classList.add("primary");
+
+      btnPause.disabled = false;
+      btnPause.classList.add("pauseTone");
+      btnPause.textContent = paused ? "resume" : "pause";
+    }
+  }
+
   function render(){
-    elTimer.textContent = fmt(elapsedMs + (running && !paused ? (Date.now() - startMs) : 0));
+    elTimer.textContent = fmt(nowMs());
+    syncUI();
   }
 
   function stopTick(){
@@ -136,9 +238,6 @@
     paused = false;
     elapsedMs = 0;
     startMs = Date.now();
-
-    btnPause.disabled = false;
-    btnPause.textContent = "pause";
     setStatus("");
 
     stopTick();
@@ -148,36 +247,36 @@
 
   function togglePause(){
     if (!running) return;
+
     if (!paused){
-      // pause
       elapsedMs += Date.now() - startMs;
       paused = true;
-      btnPause.textContent = "resume";
-      render();
     } else {
-      // resume
       startMs = Date.now();
       paused = false;
-      btnPause.textContent = "pause";
     }
+    render();
   }
 
   async function clearAndSave(){
+    // if not running: just reset UI (no save)
     if (!running) {
-      // even if not running, still reset UI
-      elapsedMs = 0; paused = false; running = false;
-      btnPause.disabled = true; btnPause.textContent = "pause";
-      stopTick(); render();
+      elapsedMs = 0;
+      paused = false;
+      running = false;
+      stopTick();
       setStatus("");
+      render();
       return;
     }
 
-    // freeze elapsed
+    // freeze time
     if (!paused) elapsedMs += Date.now() - startMs;
 
-    const minutes = Math.floor((elapsedMs / 1000) / 60); // floor rounding
+    const minutes = Math.floor((elapsedMs / 1000) / 60);
     const subject = elSubject.value;
 
+    // lock ui during save
     btnStart.disabled = true;
     btnClear.disabled = true;
     btnPause.disabled = true;
@@ -188,15 +287,14 @@
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ subject, minutes })
       });
+
       const j = await r.json().catch(() => ({}));
 
-     if (!r.ok || !j.ok){
-  const msg = (j && (j.error || j.detail)) ? (j.error || "error") : "error";
-  setStatus(`error: ${msg}`);
-} else {
-  setStatus("saved");
-}
-
+      if (!r.ok || !j.ok){
+        setStatus("error");
+      } else {
+        setStatus("saved");
+      }
     } catch(e){
       setStatus("error");
     } finally {
@@ -205,12 +303,10 @@
       paused = false;
       elapsedMs = 0;
       stopTick();
-      render();
+      render(); // syncUI happens inside
 
-      btnStart.disabled = false;
-      btnClear.disabled = false;
-      btnPause.disabled = true;
-      btnPause.textContent = "pause";
+      // re-enable after render decided states
+      // (syncUI will enable start, disable clear if 00:00)
     }
   }
 
